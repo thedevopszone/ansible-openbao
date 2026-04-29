@@ -1,0 +1,13 @@
+---
+openbao_version: "2.5.3"
+
+openbao_arch_map:
+  x86_64: amd64
+  aarch64: arm64
+
+openbao_deb_url: "https://github.com/openbao/openbao/releases/download/v{{ openbao_version }}/openbao_{{ openbao_version }}_linux_{{ openbao_arch_map[ansible_architecture] }}.deb"
+
+openbao_deb_dest: "/tmp/openbao_{{ openbao_version }}_linux_{{ openbao_arch_map[ansible_architecture] }}.deb"
+
+openbao_service_enabled: true
+openbao_service_state: started

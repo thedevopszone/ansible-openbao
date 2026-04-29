@@ -1,0 +1,7 @@
+---
+- name: Install OpenBao via package
+  hosts: openbao_servers
+  become: true
+  gather_facts: true
+  roles:
+    - role: openbao

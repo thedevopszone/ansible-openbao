@@ -1,0 +1,48 @@
+---
+- name: Assert supported architecture
+  ansible.builtin.assert:
+    that:
+      - ansible_architecture in openbao_arch_map
+    fail_msg: "Unsupported architecture: {{ ansible_architecture }}"
+
+- name: Ensure prerequisite packages are present
+  ansible.builtin.apt:
+    name:
+      - openssl
+      - ca-certificates
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Check installed OpenBao version
+  ansible.builtin.command: dpkg-query -W -f='${Version}' openbao
+  register: openbao_installed_version
+  changed_when: false
+  failed_when: false
+
+- name: Download OpenBao .deb package
+  ansible.builtin.get_url:
+    url: "{{ openbao_deb_url }}"
+    dest: "{{ openbao_deb_dest }}"
+    mode: "0644"
+    timeout: 120
+  when: openbao_installed_version.stdout != openbao_version
+
+- name: Install OpenBao .deb package
+  ansible.builtin.apt:
+    deb: "{{ openbao_deb_dest }}"
+    state: present
+  when: openbao_installed_version.stdout != openbao_version
+  notify: Restart openbao
+
+- name: Remove downloaded .deb file
+  ansible.builtin.file:
+    path: "{{ openbao_deb_dest }}"
+    state: absent
+
+- name: Enable and start OpenBao service
+  ansible.builtin.systemd:
+    name: openbao
+    enabled: "{{ openbao_service_enabled }}"
+    state: "{{ openbao_service_state }}"
+    daemon_reload: true

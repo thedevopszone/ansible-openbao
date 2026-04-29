@@ -1,0 +1,20 @@
+---
+galaxy_info:
+  role_name: openbao
+  author: Thomas Mundt
+  description: Install OpenBao via official .deb package from GitHub releases
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+    - name: Debian
+      versions:
+        - bookworm
+  galaxy_tags:
+    - openbao
+    - vault
+    - secrets
+dependencies: []

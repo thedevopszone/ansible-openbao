@@ -1,7 +1,10 @@
 resource "vault_generic_endpoint" "user" {
   for_each = var.users
 
-  depends_on = [vault_auth_backend.userpass]
+  depends_on = [
+    vault_auth_backend.userpass,
+    vault_policy.managed,
+  ]
 
   path                 = "auth/userpass/users/${each.key}"
   ignore_absent_fields = true

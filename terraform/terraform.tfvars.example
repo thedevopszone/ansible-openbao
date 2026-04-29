@@ -7,3 +7,41 @@ users = {
     policies = ["admin"]
   }
 }
+
+# AppRoles für Maschinen/CI. Optional — kann leer bleiben.
+approles = {
+  # ci-runner = {
+  #   policies      = ["read-only"]
+  #   token_ttl     = 3600       # 1h
+  #   token_max_ttl = 14400      # 4h
+  #   secret_id_ttl = 86400      # 24h
+  # }
+}
+
+# Datenbank-Verbindungen. Optional — kann leer bleiben.
+# Voraussetzung: Auf der DB existiert ein "Vault-Admin"-User mit Rechten,
+# Rollen/User anzulegen und zu droppen.
+database_connections = {
+  # app-postgres = {
+  #   plugin_name    = "postgresql-database-plugin"
+  #   connection_url = "postgresql://{{username}}:{{password}}@db.internal:5432/app?sslmode=disable"
+  #   username       = "vault_admin"
+  #   password       = "REPLACE_ME"
+  #   allowed_roles  = ["app-readonly", "app-readwrite"]
+  # }
+}
+
+# Rollen für dynamische DB-Credentials. Pro Connection mehrere Rollen möglich.
+database_roles = {
+  # app-readonly = {
+  #   db_connection = "app-postgres"
+  #   creation_statements = [
+  #     "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';",
+  #     "GRANT CONNECT ON DATABASE app TO \"{{name}}\";",
+  #     "GRANT USAGE ON SCHEMA public TO \"{{name}}\";",
+  #     "GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\";",
+  #   ]
+  #   default_ttl = 3600       # 1h
+  #   max_ttl     = 86400      # 24h
+  # }
+}

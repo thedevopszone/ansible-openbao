@@ -17,6 +17,12 @@ variable "skip_tls_verify" {
   default     = true
 }
 
+variable "audit_log_path" {
+  description = "Pfad der Audit-Log-Datei auf dem OpenBao-Server. Verzeichnis muss vom openbao-User schreibbar sein."
+  type        = string
+  default     = "/opt/openbao/audit.log"
+}
+
 variable "users" {
   description = "Userpass-Benutzer mit zugewiesenen Policies. Passwörter werden im Resource-Body als sensitive behandelt; Benutzernamen sind nicht-sensitiv (sie tauchen als Resource-Keys im State auf)."
   type = map(object({

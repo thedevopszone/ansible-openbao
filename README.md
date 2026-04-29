@@ -60,6 +60,20 @@ all:
 
 ## Verwendung
 
+Über das beigelegte `Makefile`:
+
+```bash
+make help          # alle Targets
+make install       # OpenBao via Ansible installieren
+make ping          # Ansible-Hosts pingen
+make tf-init       # terraform init
+make tf-plan       # terraform plan (VAULT_TOKEN nötig)
+make tf-apply      # terraform apply
+make deploy        # install + tf-init + tf-apply in einem Rutsch
+```
+
+Direkter Aufruf ohne Makefile:
+
 ```bash
 ansible-playbook playbooks/install-openbao.yml
 ```

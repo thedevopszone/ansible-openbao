@@ -9,6 +9,7 @@ initialisiert (`bao operator init`) und entsiegelt.
 - **Auth-Backend** `userpass` — Login per Username/Passwort statt Root-Token.
 - **Policy** `admin` — volle Rechte (Ersatz für den Root-Token im Alltag).
 - **User** gemäß `var.users` (in `terraform.tfvars`).
+- **Audit-Device** (file) — schreibt jeden API-Request nach `/opt/openbao/audit.log`.
 
 ## Voraussetzungen
 
@@ -46,6 +47,21 @@ Recovery-Fälle nötig.
 | `vault_token` | `null` | Provider-Token. `null` ⇒ `VAULT_TOKEN` aus Env wird genutzt |
 | `skip_tls_verify` | `true` | TLS-Verifikation aus (selbst-signiertes Cert) |
 | `users` | — | Map `username → { password, policies }` |
+| `audit_log_path` | `/opt/openbao/audit.log` | Pfad der Audit-Log-Datei (muss vom `openbao`-User schreibbar sein) |
+
+## Audit-Logging
+
+Das aktivierte Audit-Device schreibt jeden API-Request inkl. Request-ID,
+Auth-Info, Pfad und Response-Code nach `/opt/openbao/audit.log` auf der VM.
+Sensible Felder werden HMAC-gehasht (kein Klartext).
+
+**Wichtig:**
+- Sobald **mindestens ein Audit-Device aktiv ist und nicht schreiben kann**,
+  blockiert OpenBao alle Requests. Daher: Pfad muss existieren und vom
+  `openbao`-User schreibbar sein.
+- Logrotation einrichten (z.B. `logrotate.d/openbao` mit `copytruncate` oder
+  per `bao audit reload sys/audit/file` nach Rotation). Sonst läuft `/opt`
+  voll. → **OS-Aufgabe, nicht Teil dieses Terraform-Codes.**
 
 ## Hinweise
 

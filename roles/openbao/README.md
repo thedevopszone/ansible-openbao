@@ -21,6 +21,9 @@ Rolle lädt das `.deb` direkt von `https://github.com/openbao/openbao/releases/`
 | `openbao_arch_map` | `{x86_64: amd64, aarch64: arm64}` | Mapping von `ansible_architecture` auf die Architektur im Release-Dateinamen |
 | `openbao_deb_url` | abgeleitet | Vollständige Download-URL des `.deb`. Selten zu überschreiben |
 | `openbao_deb_dest` | `/tmp/openbao_<version>_linux_<arch>.deb` | Lokaler Pfad während des Downloads |
+| `openbao_config_path` | `/etc/openbao/openbao.hcl` | Pfad der Hauptkonfig (für blockinfile-Eingriffe) |
+| `openbao_audit_enabled` | `true` | File-Audit-Device über `openbao.hcl` aktivieren |
+| `openbao_audit_log_path` | `/opt/openbao/audit.log` | Zielpfad des Audit-Logs (Verzeichnis muss vom `openbao`-User schreibbar sein) |
 
 ## Was die Rolle tut
 
@@ -36,14 +39,31 @@ Bei einer Versionsänderung wird der Service via Handler neu gestartet.
 
 ## Was die Rolle NICHT tut
 
-- Sie schreibt **keine** `openbao.hcl`. Die vom Paket gelieferte Default-Config
-  bleibt unangetastet (UI an, HTTPS-Listener auf `0.0.0.0:8200`, file-Storage,
-  selbst-signiertes TLS aus dem `postinst`).
+- Sie ersetzt **nicht** die komplette `openbao.hcl`. Die vom Paket gelieferte
+  Default-Config (UI an, HTTPS-Listener auf `0.0.0.0:8200`, file-Storage,
+  selbst-signiertes TLS aus dem `postinst`) bleibt erhalten. Die Rolle hängt
+  lediglich einen markierten Block für das Audit-Device per `blockinfile` an.
 - Sie initialisiert OpenBao **nicht** (`bao operator init`) und entsiegelt es
   nicht (`bao operator unseal`). Beides ist ein bewusst manueller Schritt.
 - Sie verwaltet keine Auth-Methoden, Policies, Secrets-Engines o.ä. — diese
   Post-Install-Konfiguration läuft über Terraform (siehe
   [`../../terraform/`](../../terraform/)).
+
+## Audit-Logging
+
+OpenBao 2.x verbietet das Aktivieren von Audit-Devices via API (Härtung gegen
+kompromittierte Root-Tokens). Die Rolle hängt daher einen `audit "file"`-Block
+direkt in `openbao.hcl` ein. Verifizieren auf der VM:
+
+```bash
+sudo tail -f /opt/openbao/audit.log
+bao audit list
+```
+
+Ein Audit-Device, das nicht schreiben kann, **blockiert sämtliche Requests** —
+also Schreibrechte und Plattenplatz im Auge behalten. Logrotation einrichten
+(z.B. `logrotate.d/openbao` mit `copytruncate`) — diese Rolle setzt das nicht
+auf.
 
 ## Was das Paket mitbringt
 

@@ -11,3 +11,7 @@ openbao_deb_dest: "/tmp/openbao_{{ openbao_version }}_linux_{{ openbao_arch_map[
 
 openbao_service_enabled: true
 openbao_service_state: started
+
+openbao_config_path: /etc/openbao/openbao.hcl
+openbao_audit_enabled: true
+openbao_audit_log_path: /opt/openbao/audit.log

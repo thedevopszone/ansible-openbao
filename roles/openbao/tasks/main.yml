@@ -40,6 +40,21 @@
     path: "{{ openbao_deb_dest }}"
     state: absent
 
+- name: Configure file audit device in openbao.hcl
+  ansible.builtin.blockinfile:
+    path: "{{ openbao_config_path }}"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - audit"
+    block: |
+      audit "file" "default" {
+        description = "File audit log managed by Ansible"
+        options = {
+          file_path = "{{ openbao_audit_log_path }}"
+          log_raw   = "false"
+        }
+      }
+    state: "{{ 'present' if openbao_audit_enabled | bool else 'absent' }}"
+  notify: Restart openbao
+
 - name: Enable and start OpenBao service
   ansible.builtin.systemd:
     name: openbao

@@ -132,6 +132,18 @@ anzeigen — diese muss akzeptiert werden. Login erfolgt mit dem Initial-Root-To
 Siehe [`roles/openbao/README.md`](roles/openbao/README.md) für die vollständige
 Liste der überschreibbaren Variablen der Rolle.
 
+## Konfiguration via Terraform
+
+Was *innerhalb* von OpenBao passiert (Auth-Methoden, Policies, User,
+Secret-Engines) wird über Terraform verwaltet. Der Code liegt unter
+[`terraform/`](terraform/) und nutzt den `hashicorp/vault`-Provider, der mit
+OpenBao API-kompatibel ist.
+
+Erstes Ziel: Userpass-Auth + Admin-Policy + ein Admin-User, damit der
+Initial-Root-Token nach dem Bootstrap weggesperrt werden kann.
+
+Details und Bootstrap-Anleitung: [`terraform/README.md`](terraform/README.md).
+
 ## Lizenz
 
 MIT

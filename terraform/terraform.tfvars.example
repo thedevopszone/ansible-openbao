@@ -1,0 +1,9 @@
+# Vorlage — nach terraform.tfvars kopieren und Werte anpassen.
+# Die echte terraform.tfvars wird per .gitignore vom Versionsmanagement ausgeschlossen.
+
+users = {
+  thomas = {
+    password = "REPLACE_ME"
+    policies = ["admin"]
+  }
+}

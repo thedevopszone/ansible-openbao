@@ -41,7 +41,9 @@ Bei einer Versionsänderung wird der Service via Handler neu gestartet.
   selbst-signiertes TLS aus dem `postinst`).
 - Sie initialisiert OpenBao **nicht** (`bao operator init`) und entsiegelt es
   nicht (`bao operator unseal`). Beides ist ein bewusst manueller Schritt.
-- Sie verwaltet keine Auth-Methoden, Policies, Secrets-Engines o.ä.
+- Sie verwaltet keine Auth-Methoden, Policies, Secrets-Engines o.ä. — diese
+  Post-Install-Konfiguration läuft über Terraform (siehe
+  [`../../terraform/`](../../terraform/)).
 
 ## Was das Paket mitbringt
 

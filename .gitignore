@@ -16,3 +16,12 @@ __pycache__/
 *.swp
 .idea/
 .vscode/
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/*.tfvars
+terraform/*.auto.tfvars
+terraform/crash.log
+terraform/crash.*.log

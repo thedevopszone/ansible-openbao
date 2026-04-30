@@ -1,0 +1,25 @@
+openbao:
+  addr: https://172.16.0.107:8200
+  skipVerify: true
+  authPath: kubernetes
+  role: nginx-demo
+  kvPath: secret/myapp/db
+  secretKey: password
+
+image:
+  repository: nginx
+  tag: 1.27-alpine
+  pullPolicy: IfNotPresent
+
+initImage:
+  repository: openbao/openbao
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+replicaCount: 1
+
+resources: {}

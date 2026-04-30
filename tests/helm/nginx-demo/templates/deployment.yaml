@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nginx-demo.fullname" . }}
+  labels:
+    {{- include "nginx-demo.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "nginx-demo.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nginx-demo.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "nginx-demo.fullname" . }}
+      automountServiceAccountToken: true
+      initContainers:
+        - name: fetch-secret
+          image: "{{ .Values.initImage.repository }}:{{ .Values.initImage.tag }}"
+          imagePullPolicy: {{ .Values.initImage.pullPolicy }}
+          command: ["/bin/sh", "/scripts/fetch-secret.sh"]
+          env:
+            - name: VAULT_ADDR
+              value: {{ .Values.openbao.addr | quote }}
+            - name: VAULT_SKIP_VERIFY
+              value: {{ .Values.openbao.skipVerify | quote }}
+            - name: VAULT_AUTH_PATH
+              value: {{ .Values.openbao.authPath | quote }}
+            - name: VAULT_ROLE
+              value: {{ .Values.openbao.role | quote }}
+            - name: VAULT_KV_PATH
+              value: {{ .Values.openbao.kvPath | quote }}
+            - name: VAULT_SECRET_KEY
+              value: {{ .Values.openbao.secretKey | quote }}
+            - name: SHARED_DIR
+              value: /shared
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+            - name: init-script
+              mountPath: /scripts
+              readOnly: true
+      containers:
+        - name: nginx
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+          volumeMounts:
+            - name: shared
+              mountPath: /usr/share/nginx/html
+              readOnly: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: shared
+          emptyDir: {}
+        - name: init-script
+          configMap:
+            name: {{ include "nginx-demo.fullname" . }}-init
+            defaultMode: 0755

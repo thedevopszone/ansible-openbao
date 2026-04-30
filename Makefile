@@ -3,10 +3,11 @@ SHELL := /bin/bash
 VAULT_ADDR ?= https://172.16.0.107:8200
 TF_DIR     := terraform
 
-.PHONY: help install ping tf-init tf-plan tf-apply tf-destroy tf-fmt tf-validate deploy check-token
+.PHONY: help deps install ping tf-init tf-plan tf-apply tf-destroy tf-fmt tf-validate deploy check-token
 
 help:
 	@echo "Targets:"
+	@echo "  deps         - Install ansible collections (requirements.yml) and python deps (requirements.txt) into .venv"
 	@echo "  install      - Install OpenBao on managed hosts (ansible)"
 	@echo "  ping         - Ping ansible hosts"
 	@echo "  tf-init      - terraform init"
@@ -20,6 +21,18 @@ help:
 	@echo "Env:"
 	@echo "  VAULT_ADDR   = $(VAULT_ADDR)"
 	@echo "  VAULT_TOKEN  must be exported for terraform targets"
+
+PYTHON ?= python3
+VENV   := .venv
+VENV_PIP := $(VENV)/bin/pip
+
+$(VENV):
+	$(PYTHON) -m venv $(VENV)
+	$(VENV_PIP) install --upgrade pip
+
+deps: $(VENV)
+	ansible-galaxy collection install -r requirements.yml
+	$(VENV_PIP) install -r requirements.txt
 
 install:
 	ansible-playbook playbooks/install-openbao.yml

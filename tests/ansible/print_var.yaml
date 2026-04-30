@@ -1,0 +1,27 @@
+---
+- name: Read a secret from OpenBao and print it
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    ansible_python_interpreter: "{{ playbook_dir }}/../../.venv/bin/python"
+    openbao_url: "{{ lookup('env', 'VAULT_ADDR') | default('https://172.16.0.107:8200', true) }}"
+    openbao_token: "{{ lookup('env', 'VAULT_TOKEN') }}"
+    openbao_secret_path: "myapp/db"
+    openbao_secret_mount: "secret"
+    openbao_secret_key: "password"
+
+  tasks:
+    - name: Fetch secret from OpenBao (KV v2)
+      community.hashi_vault.vault_kv2_get:
+        url: "{{ openbao_url }}"
+        token: "{{ openbao_token }}"
+        path: "{{ openbao_secret_path }}"
+        engine_mount_point: "{{ openbao_secret_mount }}"
+        validate_certs: false
+      register: openbao_secret
+      no_log: true
+
+    - name: Print the secret value
+      ansible.builtin.debug:
+        msg: "{{ openbao_secret_key }} = {{ openbao_secret.secret[openbao_secret_key] }}"

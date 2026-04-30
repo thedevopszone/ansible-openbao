@@ -64,6 +64,7 @@ all:
 
 ```bash
 make help          # alle Targets
+make deps          # Ansible-Collections + Python-Deps in .venv installieren
 make install       # OpenBao via Ansible installieren
 make ping          # Ansible-Hosts pingen
 make tf-init       # terraform init
@@ -145,6 +146,150 @@ anzeigen — diese muss akzeptiert werden. Login erfolgt mit dem Initial-Root-To
 
 Siehe [`roles/openbao/README.md`](roles/openbao/README.md) für die vollständige
 Liste der überschreibbaren Variablen der Rolle.
+
+## Secrets aus OpenBao in Ansible nutzen
+
+OpenBao ist API-kompatibel zu HashiCorp Vault — Secrets werden über die
+Collection [`community.hashi_vault`](https://docs.ansible.com/ansible/latest/collections/community/hashi_vault/)
+gelesen.
+
+### Abhängigkeiten
+
+`requirements.yml` (Ansible-Collection) und `requirements.txt` (Python `hvac`)
+werden gemeinsam installiert via:
+
+```bash
+make deps
+```
+
+Das Target legt ein lokales `.venv/` an und installiert dort `hvac` sowie die
+Collection. Das Test-Playbook setzt `ansible_python_interpreter` explizit auf
+`.venv/bin/python`, eine Aktivierung des venv ist daher nicht nötig.
+
+### Secret anlegen
+
+KV-v2-Secret anlegen, das vom Test-Playbook gelesen wird (Pfad `secret/myapp/db`,
+Key `password`):
+
+```bash
+export VAULT_ADDR=https://172.16.0.107:8200
+export VAULT_TOKEN=<root-or-admin-token>
+export VAULT_SKIP_VERIFY=true
+
+# KV-v2 Engine einmalig aktivieren (falls nicht vorhanden):
+bao secrets enable -path=secret -version=2 kv
+
+# Secret schreiben:
+bao kv put secret/myapp/db password=s3cr3t
+
+# Prüfen:
+bao kv get secret/myapp/db
+```
+
+Alternativ über die Web-UI (`/ui` → Secrets Engines → `secret/` → Create
+secret) oder via Terraform-Ressource `vault_kv_secret_v2`. Hinweis: bei
+Terraform landet der Wert im State.
+
+### Test-Playbook
+
+`tests/ansible/print_var.yaml` liest das Secret und gibt den Wert aus:
+
+```bash
+export VAULT_ADDR=https://172.16.0.107:8200
+export VAULT_TOKEN=<token>
+ansible-playbook tests/ansible/print_var.yaml
+```
+
+Pfad/Mount/Key sind als Variablen überschreibbar:
+
+```bash
+ansible-playbook tests/ansible/print_var.yaml \
+  -e openbao_secret_path=other/app \
+  -e openbao_secret_mount=secret \
+  -e openbao_secret_key=api_key
+```
+
+### Authentifizierung ohne `VAULT_TOKEN` bei jedem Aufruf
+
+`VAULT_TOKEN` jedes Mal in die Shell zu exportieren ist umständlich. Drei
+gängige Wege, das zu vermeiden — je nach Use-Case:
+
+#### Option 1 — `~/.vault-token` (lokales Dev-Setup)
+
+`bao login` schreibt den ausgestellten Client-Token automatisch nach
+`~/.vault-token`. Die `community.hashi_vault`-Collection (bzw. `hvac`) liest
+diese Datei automatisch, wenn `VAULT_TOKEN` nicht gesetzt ist.
+
+```bash
+brew install openbao   # bao CLI lokal, einmalig
+
+export VAULT_ADDR=https://172.16.0.107:8200
+export VAULT_SKIP_VERIFY=true
+bao login -method=userpass username=tzachmann   # einmalig, fragt Passwort
+
+# Danach kein Token-Export mehr nötig:
+ansible-playbook tests/ansible/print_var.yaml
+```
+
+Der Token bleibt bis zum Ablauf der Userpass-TTL (Default 768h) gültig — erst
+dann erneut einloggen. `~/.vault-token` enthält den Token im Klartext, daher
+nur auf Geräten mit Disk-Encryption verwenden.
+
+#### Option 2 — AppRole (Automatisierung / CI)
+
+AppRole ist explizit für „Maschinen ohne menschliches Login" gedacht. Die
+`role_id` ist langlebig, die `secret_id` ist rotierbar. Beides kommt z. B. aus
+CI-Secrets oder einer lokalen, nicht eingecheckten Env-Datei.
+
+Im Playbook:
+
+```yaml
+- community.hashi_vault.vault_kv2_get:
+    path: myapp/db
+    auth_method: approle
+    role_id: "{{ lookup('env', 'OPENBAO_ROLE_ID') }}"
+    secret_id: "{{ lookup('env', 'OPENBAO_SECRET_ID') }}"
+```
+
+Die AppRole-Infrastruktur ist im Terraform-Code (`terraform/approle.tf`)
+bereits vorbereitet — eine konkrete Rolle anlegen und eine `secret_id`
+ausstellen, dann als Env-Var in CI hinterlegen. **Niemals den Root-Token im
+CI verwenden.**
+
+#### Option 3 — `direnv` (projektlokales Auto-Env)
+
+[`direnv`](https://direnv.net/) lädt eine `.envrc` automatisch beim `cd` ins
+Projekt-Verzeichnis und entlädt sie beim Verlassen.
+
+```bash
+brew install direnv   # einmalig, plus Hook in ~/.zshrc: eval "$(direnv hook zsh)"
+```
+
+Im Repo eine `.envrc` anlegen (**nicht committen** — gehört in `.gitignore`):
+
+```bash
+# .envrc
+export VAULT_ADDR=https://172.16.0.107:8200
+export VAULT_SKIP_VERIFY=true
+export VAULT_TOKEN="$(cat ~/.vault-token 2>/dev/null)"
+```
+
+Einmalig freigeben:
+
+```bash
+direnv allow
+```
+
+Danach werden die Variablen automatisch gesetzt, sobald du ins Projekt
+wechselst. Kombinierbar mit Option 1: `bao login` schreibt den Token,
+`direnv` exportiert ihn.
+
+#### Empfehlung
+
+- **Lokal:** Option 1 (`bao login`), optional plus Option 3 für `VAULT_ADDR`.
+- **Automatisierung / CI:** Option 2 (AppRole).
+- **Root-Token** wird ausschließlich für Bootstrap und Recovery genutzt und
+  bleibt offline weggesperrt.
 
 ## Konfiguration via Terraform
 

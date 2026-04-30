@@ -339,6 +339,160 @@ HTML-Seite.
 | [`tests/helm/nginx-demo`](tests/helm/nginx-demo/) | Init-Container loggt mit SA-JWT, liest Secret per `bao` CLI, schreibt ins Pod-`emptyDir` | keine | nur per Pod-Restart |
 | [`tests/helm/nginx-demo-eso`](tests/helm/nginx-demo-eso/) | External Secrets Operator reconciliert OpenBao → K8s-`Secret`, nginx mountet es | ESO Controller einmalig | automatisch (`refreshInterval`) |
 
+### Wie das funktioniert — drei Vertrauensbeziehungen
+
+OpenBao gibt nur dann ein Secret raus, wenn es *sicher* weiß, **wer**
+fragt. Bei K8s-Pods gibt es kein Passwort — also wird die Identität so
+nachgewiesen:
+
+```
+                        +-------------+
+                        |  K8s API    |  ← die "Wahrheitsquelle" für Pod-Identität
+                        +------+------+
+                       (1)|         ^
+                vertraut: |         |(3) "ist dieses JWT echt?"
+                CA-Cert   v         |    (TokenReview API)
++------------+        +-----------------+
+|  K8s API   |<--(2)--|    OpenBao      |
+|            |  JWT   |  auth/kubernetes|
++------------+        +-----------------+
+       ^                       ^
+       | gibt Pod ein JWT      | (4) "ich bin SA xyz, login!"
+       | (automatisch im Pod)  |     hier ist mein JWT
++------+----+                  |
+|   Pod     +------------------+
+|  SA: xyz  |
++-----------+
+```
+
+Drei Trust-Edges:
+
+1. **OpenBao → K8s API:** OpenBao kennt die K8s-API-URL + CA-Cert (gesetzt
+   per `bao write auth/kubernetes/config`).
+2. **K8s → Pod:** Kubelet mountet automatisch ein JWT in jeden Pod unter
+   `/var/run/secrets/kubernetes.io/serviceaccount/token`. Das JWT ist
+   K8s-signiert und sagt: „Dieser Pod hat ServiceAccount `xyz` in Namespace
+   `n`".
+3. **K8s validiert das JWT für OpenBao** (TokenReview API): wenn OpenBao
+   fragt „ist dieses JWT echt?", muss der anfragende SA das tun dürfen.
+   Deshalb hat unser SA das ClusterRoleBinding auf `system:auth-delegator`.
+
+#### Variante A — Init-Container: Der Pod holt selbst
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│ Pod startet (Namespace: nginx-demo)                                │
+│                                                                    │
+│ 1. kubelet mountet JWT in /var/run/secrets/.../token               │
+│                                                                    │
+│ 2. Init-Container (openbao/openbao Image) läuft:                   │
+│    a) bao write auth/kubernetes/login                              │
+│         role=nginx-demo                                            │
+│         jwt=<inhalt von /var/run/.../token>                        │
+│       ↓                                                            │
+│       OpenBao ruft K8s TokenReview API auf:                        │
+│         "Ist dieses JWT valid?" → "ja, SA=nginx-demo NS=nginx-demo"│
+│       ↓                                                            │
+│       OpenBao prüft Role nginx-demo:                               │
+│         bound_service_account_names=[nginx-demo] ✓                 │
+│         bound_service_account_namespaces=[nginx-demo] ✓            │
+│       ↓                                                            │
+│       OpenBao stellt aus: client_token + Policy nginx-demo         │
+│                                                                    │
+│    b) bao kv get -field=password secret/myapp/db                   │
+│       (mit dem client_token aus a)                                 │
+│       ↓                                                            │
+│       OpenBao prüft Policy: "darf path secret/data/myapp/db" ✓     │
+│       ↓                                                            │
+│       OpenBao gibt zurück: "s3cr3t"                                │
+│                                                                    │
+│    c) schreibt /shared/index.html mit dem Wert                     │
+│                                                                    │
+│ 3. Init beendet, Hauptcontainer (nginx) startet, mountet /shared   │
+│    als HTML-Root und serviert die Seite.                           │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+Der Pod selbst macht den Login. Kein zentraler Operator nötig — aber das
+passiert nur **einmal** beim Pod-Start.
+
+#### Variante B — ESO: Der Operator holt für den Pod
+
+```
+┌────────────────── External Secrets Operator (NS external-secrets) ──┐
+│ watcht ExternalSecret-Resources cluster-weit                        │
+└────────┬─────────────────────────────────────────────────────┬──────┘
+         │                                                     │
+         │ liest ExternalSecret                                 │ schreibt
+         │                                                     │ K8s Secret
+         ▼                                                     ▼
+┌───────────────────── Namespace nginx-demo-eso ───────────────────────┐
+│                                                                      │
+│  SecretStore "nginx-demo-eso"                                        │
+│    provider.vault: server, path, caBundle                            │
+│    auth.kubernetes.serviceAccountRef: nginx-demo-eso  ← welche SA    │
+│                                       nutzen, um JWT  zu beziehen    │
+│                                                                      │
+│  ServiceAccount "nginx-demo-eso"                                     │
+│    + ClusterRoleBinding system:auth-delegator                        │
+│                                                                      │
+│  ExternalSecret "nginx-demo-eso"                                     │
+│    secretStoreRef: nginx-demo-eso                                    │
+│    refreshInterval: 1m                                               │
+│    data: secretKey=password, remoteRef.key=myapp/db                  │
+│                                                                      │
+│  K8s Secret "nginx-demo" (von ESO erzeugt, refresht alle 1m)         │
+│    data.index.html = <gerenderte Seite mit password=s3cr3t>          │
+│                                                                      │
+│  Deployment nginx-demo-eso                                           │
+│    mountet K8s Secret "nginx-demo" als /usr/share/nginx/html/        │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+Was ESO alle 60 Sekunden tut:
+
+1. ESO ruft die K8s API: „gib mir ein neues, kurzlebiges JWT für SA
+   `nginx-demo-eso` in NS `nginx-demo-eso`" (TokenRequest API).
+2. ESO sendet dieses JWT an OpenBao — identische Login-Logik wie bei A —
+   bekommt `client_token` mit Policy `nginx-demo`.
+3. ESO liest `secret/data/myapp/db` → bekommt `password=s3cr3t`.
+4. ESO rendert das Template aus `ExternalSecret.spec.target.template.data`
+   mit `{{ .password }}` → fertige HTML-Seite.
+5. ESO erstellt/aktualisiert das K8s-`Secret` `nginx-demo` mit dem Inhalt.
+6. nginx hat das `Secret` als Volume gemountet → kubelet syncht den
+   Inhalt → nginx serviert die neue Seite.
+
+Der App-Pod selbst weiß nichts von OpenBao — für ihn ist es einfach ein
+normales K8s-Secret.
+
+#### Was beim Init-Container anders läuft als bei ESO
+
+|  | Init-Container (A) | ESO (B) |
+| --- | --- | --- |
+| Wer macht den Login? | der Pod selbst | der ESO-Controller |
+| Welcher SA loggt sich ein? | der App-SA (`nginx-demo`) | der im SecretStore referenzierte SA (`nginx-demo-eso`) |
+| Wann wird gelesen? | einmalig beim Pod-Start | zyklisch (`refreshInterval`) |
+| Konsumformat im App-Pod | Datei im `emptyDir` | normales K8s-`Secret` |
+| Bei Secret-Rotation | Pod muss neu starten | App-Pod sieht neuen Wert ohne Restart |
+
+#### Verifikation am laufenden Beispiel
+
+Init-Container-Demo, Pod-Log:
+
+```
+[init] login to OpenBao at https://172.16.0.107:8200 via auth/kubernetes (role=nginx-demo)
+[init] read secret/myapp/db (key=password)
+[init] wrote /shared/index.html
+```
+
+ESO-Demo, Resource-States:
+
+```
+SecretStore     ... STATUS=Valid          ← Edge 1+3 ok, Login klappt
+ExternalSecret  ... STATUS=SecretSynced   ← Edge 4 (read) ok, K8s-Secret erstellt
+Secret nginx-demo ... DATA=1              ← materialisiertes Secret-Objekt
+```
+
 ### Gemeinsame Voraussetzung: OpenBao Kubernetes-Auth
 
 Einmal pro Cluster aktivieren und Cluster-API + CA hinterlegen:

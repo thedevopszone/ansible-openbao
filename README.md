@@ -142,6 +142,43 @@ Da das TLS-Zertifikat selbst-signiert ist, wird der Browser eine Warnung
 anzeigen — diese muss akzeptiert werden. Login erfolgt mit dem Initial-Root-Token
 (oder einem später angelegten Token).
 
+## TLS-Zertifikat (SANs)
+
+Das aus dem `.deb`-Paket mitgelieferte Cert enthält **keine Subject
+Alternative Names** — nur `CN=OpenBao`. Moderne Go-Clients (Vault SDK,
+External Secrets Operator, …) ignorieren CN und verlangen explizit SANs.
+Tools mit Skip-Verify-Flag (`VAULT_SKIP_VERIFY=true`) kommen damit klar,
+strikte Clients wie ESO scheitern an `x509: ... doesn't contain any IP SANs`.
+
+Empfohlen: einmalig nach der Installation einen Cert mit korrekten SANs
+erzeugen.
+
+```bash
+ssh ubuntu@<host>
+TS=$(date +%Y%m%d-%H%M%S)
+sudo cp -av /opt/openbao/tls/tls.crt /opt/openbao/tls/tls.crt.bak-$TS
+sudo cp -av /opt/openbao/tls/tls.key /opt/openbao/tls/tls.key.bak-$TS
+
+sudo openssl req -x509 -newkey rsa:2048 -nodes -days 1095 \
+  -keyout /tmp/tls.key.new -out /tmp/tls.crt.new \
+  -subj "/O=OpenBao/CN=<hostname>" \
+  -addext "subjectAltName=IP:<ip>,DNS:<hostname>,DNS:localhost,IP:127.0.0.1"
+
+sudo install -o openbao -g openbao -m 600 /tmp/tls.crt.new /opt/openbao/tls/tls.crt
+sudo install -o openbao -g openbao -m 600 /tmp/tls.key.new /opt/openbao/tls/tls.key
+sudo rm /tmp/tls.crt.new /tmp/tls.key.new
+
+sudo systemctl restart openbao
+# OpenBao ist jetzt sealed → 3× bao operator unseal
+```
+
+CA-Bundle für strikte Clients:
+
+```bash
+ssh ubuntu@<host> 'sudo cat /opt/openbao/tls/tls.crt' > /tmp/openbao-ca.crt
+curl --cacert /tmp/openbao-ca.crt https://<host>:8200/v1/sys/health
+```
+
 ## Variablen
 
 Siehe [`roles/openbao/README.md`](roles/openbao/README.md) für die vollständige
@@ -290,6 +327,19 @@ wechselst. Kombinierbar mit Option 1: `bao login` schreibt den Token,
 - **Automatisierung / CI:** Option 2 (AppRole).
 - **Root-Token** wird ausschließlich für Bootstrap und Recovery genutzt und
   bleibt offline weggesperrt.
+
+## Secrets aus OpenBao in Kubernetes nutzen
+
+Zwei Ansätze, beide als kleines Helm-Chart-Demo unter [`tests/helm/`](tests/helm/):
+
+| Pfad | Pattern | Cluster-weite Voraussetzung |
+| --- | --- | --- |
+| [`tests/helm/nginx-demo`](tests/helm/nginx-demo/) | Init-Container holt das Secret beim Pod-Start (per `bao` CLI + K8s-Auth-Backend), schreibt es ins Pod-Volume | keine |
+| [`tests/helm/nginx-demo-eso`](tests/helm/nginx-demo-eso/) | External Secrets Operator reconciled OpenBao-Secret zyklisch in ein K8s-`Secret` | ESO einmalig installieren |
+
+Beide setzen voraus, dass auf OpenBao-Seite das `kubernetes` Auth-Backend
+eingerichtet ist und eine Policy + Role den jeweiligen ServiceAccount
+freigibt — Details in den jeweiligen READMEs.
 
 ## Konfiguration via Terraform
 

@@ -1,0 +1,26 @@
+openbao:
+  addr: https://172.16.0.107:8200
+  caBundle: ""        # PEM-encoded CA bundle (required — ESO has no skip-verify).
+                      # Pass via: --set-string "openbao.caBundle=$(cat /tmp/openbao-ca.crt)"
+  authPath: kubernetes
+  role: nginx-demo-eso
+  kvMount: secret     # KV-v2 mount path
+  kvKey: myapp/db     # path within the KV mount
+  secretKey: password # property to extract
+
+externalSecret:
+  refreshInterval: 1m
+  targetSecretName: nginx-demo
+
+image:
+  repository: nginx
+  tag: 1.27-alpine
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+replicaCount: 1
+
+resources: {}

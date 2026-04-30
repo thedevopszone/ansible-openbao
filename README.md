@@ -330,16 +330,114 @@ wechselst. Kombinierbar mit Option 1: `bao login` schreibt den Token,
 
 ## Secrets aus OpenBao in Kubernetes nutzen
 
-Zwei Ansätze, beide als kleines Helm-Chart-Demo unter [`tests/helm/`](tests/helm/):
+Zwei lauffähige Helm-Chart-Demos unter [`tests/helm/`](tests/helm/) — beide
+ziehen dasselbe KV-v2-Secret `secret/myapp/db.password` und rendern es als
+HTML-Seite.
 
-| Pfad | Pattern | Cluster-weite Voraussetzung |
-| --- | --- | --- |
-| [`tests/helm/nginx-demo`](tests/helm/nginx-demo/) | Init-Container holt das Secret beim Pod-Start (per `bao` CLI + K8s-Auth-Backend), schreibt es ins Pod-Volume | keine |
-| [`tests/helm/nginx-demo-eso`](tests/helm/nginx-demo-eso/) | External Secrets Operator reconciled OpenBao-Secret zyklisch in ein K8s-`Secret` | ESO einmalig installieren |
+| Pfad | Pattern | Cluster-Voraussetzung | Rotation |
+| --- | --- | --- | --- |
+| [`tests/helm/nginx-demo`](tests/helm/nginx-demo/) | Init-Container loggt mit SA-JWT, liest Secret per `bao` CLI, schreibt ins Pod-`emptyDir` | keine | nur per Pod-Restart |
+| [`tests/helm/nginx-demo-eso`](tests/helm/nginx-demo-eso/) | External Secrets Operator reconciliert OpenBao → K8s-`Secret`, nginx mountet es | ESO Controller einmalig | automatisch (`refreshInterval`) |
 
-Beide setzen voraus, dass auf OpenBao-Seite das `kubernetes` Auth-Backend
-eingerichtet ist und eine Policy + Role den jeweiligen ServiceAccount
-freigibt — Details in den jeweiligen READMEs.
+### Gemeinsame Voraussetzung: OpenBao Kubernetes-Auth
+
+Einmal pro Cluster aktivieren und Cluster-API + CA hinterlegen:
+
+```bash
+export VAULT_ADDR=https://172.16.0.107:8200
+export VAULT_TOKEN=<root-or-admin-token>
+
+KUBE_HOST="https://<api-server>:6443"
+KUBE_CA_CERT="$(kubectl get cm kube-root-ca.crt -n default -o jsonpath='{.data.ca\.crt}')"
+
+bao auth enable kubernetes
+bao write auth/kubernetes/config \
+    kubernetes_host="$KUBE_HOST" \
+    kubernetes_ca_cert="$KUBE_CA_CERT"
+```
+
+Policy für genau dieses KV-Secret:
+
+```bash
+cat <<'EOF' | bao policy write nginx-demo -
+path "secret/data/myapp/db" {
+  capabilities = ["read"]
+}
+EOF
+```
+
+### Variante A — Init-Container (`nginx-demo`)
+
+Self-contained, kein Operator nötig. Der Pod authentifiziert sich mit seiner
+eigenen ServiceAccount-JWT direkt am OpenBao Kubernetes-Auth-Backend, der
+Init-Container holt das Secret und schreibt es ins shared `emptyDir`.
+
+```bash
+# 1. Role binden
+bao write auth/kubernetes/role/nginx-demo \
+    bound_service_account_names=nginx-demo \
+    bound_service_account_namespaces=nginx-demo \
+    policies=nginx-demo \
+    ttl=1h
+
+# 2. Chart installieren
+kubectl create namespace nginx-demo
+helm install demo tests/helm/nginx-demo -n nginx-demo
+
+# 3. Verifizieren
+kubectl -n nginx-demo logs deploy/nginx-demo -c fetch-secret
+kubectl -n nginx-demo port-forward svc/nginx-demo 18080:80
+curl localhost:18080
+```
+
+Details und Werte: [`tests/helm/nginx-demo/README.md`](tests/helm/nginx-demo/README.md).
+
+### Variante B — External Secrets Operator (`nginx-demo-eso`)
+
+Cluster-weiter Operator, der OpenBao-Secrets in native K8s-`Secret`-Objekte
+synchronisiert — Apps konsumieren das Secret als ganz normalen K8s-Secret,
+ohne OpenBao-Wissen. Bei Secret-Rotation in OpenBao zieht ESO den neuen
+Wert automatisch nach (Default `refreshInterval: 1m`).
+
+```bash
+# 1. ESO einmal pro Cluster installieren
+helm repo add external-secrets https://charts.external-secrets.io
+helm repo update
+helm install external-secrets external-secrets/external-secrets \
+  -n external-secrets --create-namespace --wait
+
+# 2. Eigene Role für ESO-Demo binden
+bao write auth/kubernetes/role/nginx-demo-eso \
+    bound_service_account_names=nginx-demo-eso \
+    bound_service_account_namespaces=nginx-demo-eso \
+    policies=nginx-demo \
+    ttl=1h
+
+# 3. CA-Bundle vom OpenBao-Host holen (ESO hat kein skip-verify!)
+ssh ubuntu@172.16.0.107 'sudo cat /opt/openbao/tls/tls.crt' > /tmp/openbao-ca.crt
+
+# 4. Chart installieren
+kubectl create namespace nginx-demo-eso
+helm install demo tests/helm/nginx-demo-eso -n nginx-demo-eso \
+  --set-string "openbao.caBundle=$(cat /tmp/openbao-ca.crt)"
+
+# 5. Verifizieren
+kubectl -n nginx-demo-eso get secretstore,externalsecret,secret
+kubectl -n nginx-demo-eso port-forward svc/nginx-demo-eso 18080:80
+curl localhost:18080
+```
+
+Voraussetzung: das OpenBao-Cert muss SAN-Einträge für die `openbao.addr`
+enthalten — siehe Abschnitt [TLS-Zertifikat (SANs)](#tls-zertifikat-sans).
+
+Details und Rotations-Test: [`tests/helm/nginx-demo-eso/README.md`](tests/helm/nginx-demo-eso/README.md).
+
+### Wann welche Variante
+
+- **Init-Container (A):** Tests, einfache Apps, Secrets ändern sich selten,
+  Pod-Restart bei Rotation akzeptabel. Kein cluster-weiter Operator.
+- **ESO (B):** Mehrere Apps konsumieren OpenBao-Secrets, automatische
+  Rotation gewünscht, vendor-neutrales Konsumformat (K8s-Secret) bevorzugt.
 
 ## Konfiguration via Terraform
 

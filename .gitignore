@@ -6,6 +6,12 @@ group_vars/*/vault.yml
 host_vars/*/vault.yml
 collections/
 
+# OpenBao HA Mini-CA (control-node CA + per-host certs/keys)
+.openbao-ca/
+
+# OpenBao Raft snapshots (enthalten alle Secrets — niemals committen!)
+backups/
+
 # Python
 .venv/
 __pycache__/
@@ -21,6 +27,7 @@ __pycache__/
 terraform/.terraform/
 terraform/*.tfstate
 terraform/*.tfstate.backup
+terraform/terraform.tfstate.d/
 terraform/*.tfvars
 terraform/*.auto.tfvars
 terraform/crash.log

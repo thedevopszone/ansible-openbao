@@ -15,3 +15,31 @@ openbao_service_state: started
 openbao_config_path: /etc/openbao/openbao.hcl
 openbao_audit_enabled: true
 openbao_audit_log_path: /opt/openbao/audit.log
+
+# ----- HA mode (Raft, multi-node) -----
+# Toggle. When false the role keeps the package's default single-node config.
+openbao_ha_enabled: false
+
+# Inventory group containing the HA peers.
+openbao_ha_group: openbao_ha_servers
+
+# Ports and on-disk locations on each HA host.
+openbao_data_path: /opt/openbao/data
+openbao_tls_dir: /opt/openbao/tls
+openbao_api_port: 8200
+openbao_cluster_port: 8201
+
+# CA material lives on the control node so the same CA signs new server
+# certs on subsequent runs. Keep this directory out of git (.gitignore).
+openbao_ca_local_dir: "{{ playbook_dir }}/../.openbao-ca"
+openbao_ca_cn: "OpenBao HA CA"
+openbao_ca_validity_days: 3650
+openbao_cert_validity_days: 1095
+
+# Each server cert gets its own host IP plus every peer IP as SAN, so any
+# client/peer can reach any node by IP without TLS errors.
+openbao_extra_san_ips: >-
+  {{ groups[openbao_ha_group] | default([])
+     | map('extract', hostvars, 'ansible_host') | list }}
+openbao_extra_san_dns:
+  - localhost

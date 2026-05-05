@@ -1,0 +1,35 @@
+# Managed by Ansible — do not edit by hand.
+ui            = true
+disable_mlock = true
+
+api_addr     = "https://{{ ansible_host }}:{{ openbao_api_port }}"
+cluster_addr = "https://{{ ansible_host }}:{{ openbao_cluster_port }}"
+
+storage "raft" {
+  path    = "{{ openbao_data_path }}"
+  node_id = "{{ inventory_hostname }}"
+
+{% for h in groups[openbao_ha_group] %}
+  retry_join {
+    leader_api_addr     = "https://{{ hostvars[h].ansible_host }}:{{ openbao_api_port }}"
+    leader_ca_cert_file = "{{ openbao_tls_dir }}/ca.crt"
+  }
+{% endfor %}
+}
+
+listener "tcp" {
+  address         = "0.0.0.0:{{ openbao_api_port }}"
+  cluster_address = "0.0.0.0:{{ openbao_cluster_port }}"
+  tls_cert_file   = "{{ openbao_tls_dir }}/tls.crt"
+  tls_key_file    = "{{ openbao_tls_dir }}/tls.key"
+}
+
+{% if openbao_audit_enabled | bool %}
+audit "file" "default" {
+  description = "File audit log managed by Ansible"
+  options = {
+    file_path = "{{ openbao_audit_log_path }}"
+    log_raw   = "false"
+  }
+}
+{% endif %}

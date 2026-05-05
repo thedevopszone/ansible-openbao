@@ -1,0 +1,55 @@
+# Vorlage für den HA-Cluster (Terraform-Workspace `ha`).
+# Nach `ha.tfvars` kopieren und Werte anpassen — die echte Datei ist
+# .gitignored.
+#
+# Aufruf:
+#   make tf-init                          # einmalig
+#   make tf-plan  CLUSTER=ha              # mit VAULT_TOKEN exportiert
+#   make tf-apply CLUSTER=ha
+#
+# Das Make-Target wechselt automatisch in den Workspace `ha`, lädt diese
+# Datei via -var-file=ha.tfvars und exportiert VAULT_CACERT auf die
+# Mini-CA aus ../.openbao-ca/ca.crt.
+
+vault_addr      = "https://172.16.0.143:8200"
+skip_tls_verify = false
+
+users = {
+  thomas = {
+    password = "REPLACE_ME"
+    policies = ["admin"]
+  }
+}
+
+# AppRoles für Maschinen/CI im HA-Cluster. Optional.
+approles = {
+  # ci-runner = {
+  #   policies      = ["read-only"]
+  #   token_ttl     = 3600
+  #   token_max_ttl = 14400
+  #   secret_id_ttl = 86400
+  # }
+}
+
+# Datenbank-Verbindungen. Optional.
+database_connections = {
+  # app-postgres = {
+  #   plugin_name    = "postgresql-database-plugin"
+  #   connection_url = "postgresql://{{username}}:{{password}}@db.internal:5432/app?sslmode=disable"
+  #   username       = "vault_admin"
+  #   password       = "REPLACE_ME"
+  #   allowed_roles  = ["app-readonly"]
+  # }
+}
+
+database_roles = {
+  # app-readonly = {
+  #   db_connection = "app-postgres"
+  #   creation_statements = [
+  #     "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';",
+  #     "GRANT CONNECT ON DATABASE app TO \"{{name}}\";",
+  #   ]
+  #   default_ttl = 3600
+  #   max_ttl     = 86400
+  # }
+}

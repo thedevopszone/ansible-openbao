@@ -45,6 +45,66 @@ terraform plan
 terraform apply
 ```
 
+## Mehrere Cluster verwalten (Workspaces)
+
+Wenn du sowohl den Single-Node (`172.16.0.107`) als auch den HA-Cluster
+(`172.16.0.143`) gleichzeitig mit Terraform pflegen willst, nutzen wir
+**Terraform-Workspaces** — eine Codebase, getrennter State pro Cluster.
+
+| Workspace | Ziel | Var-File | TLS-Verifikation |
+| --- | --- | --- | --- |
+| `default` | Single-Node `https://172.16.0.107:8200` | `terraform.tfvars` | aus (`skip_tls_verify=true`) |
+| `ha` | HA-Cluster `https://172.16.0.143:8200` | `ha.tfvars` | an, gegen `../.openbao-ca/ca.crt` |
+
+Der State liegt für `default` weiter in `terraform.tfstate`, für `ha` in
+`terraform.tfstate.d/ha/terraform.tfstate` — Workspace-Mechanik von
+Terraform, automatisch.
+
+### Setup HA-Workspace
+
+`make`-Targets werden aus dem **Repo-Root** aufgerufen, nicht aus
+`terraform/`.
+
+```bash
+# tfvars im terraform/-Verzeichnis anlegen:
+cp terraform/ha.tfvars.example terraform/ha.tfvars
+# Passwort und ggf. weitere User in terraform/ha.tfvars eintragen
+
+# zurück ins Repo-Root für die Make-Targets:
+export VAULT_TOKEN=<root-token-vom-HA-cluster>
+make tf-init                       # einmalig (initialisiert Provider)
+make tf-plan  CLUSTER=ha           # erzeugt Workspace `ha`, plant gegen HA
+make tf-apply CLUSTER=ha
+```
+
+`make tf-{plan,apply,destroy} CLUSTER=ha` setzt automatisch:
+
+- `terraform workspace select -or-create ha`
+- `-var-file=ha.tfvars`
+- `VAULT_CACERT=$REPO_ROOT/.openbao-ca/ca.crt` (damit der `hashicorp/vault`-Provider
+  das selbst-signierte Cluster-Cert verifizieren kann)
+
+Ohne `CLUSTER=ha` ist `CLUSTER=single` Default → Workspace `default`,
+`terraform.tfvars`, kein `VAULT_CACERT` (Single-Node läuft mit
+`skip_tls_verify=true`). Bestehender Workflow bleibt unverändert.
+
+### Workspace-Status prüfen
+
+```bash
+(cd terraform && terraform workspace list)   # zeigt aktive Workspaces (* = aktuell)
+(cd terraform && terraform workspace show)   # nur den aktuellen Namen
+```
+
+### Bewusste Trennung
+
+- `terraform.tfvars` und `ha.tfvars` sind beide gitignored — keine
+  Cluster-Konfig im Git.
+- Auch die Resource-Namen kollidieren nicht: jede Workspace hat ihren
+  eigenen State, also können beide Cluster z.B. denselben User
+  `thomas` mit unterschiedlichen Passwörtern haben.
+- Output-Namen wie `approle_role_ids` sind workspace-lokal:
+  `terraform output` gibt die Werte des aktuell gewählten Workspaces aus.
+
 Danach in der GUI (`https://172.16.0.107:8200/ui`) die Auth-Methode
 **Username** wählen und mit dem in `terraform.tfvars` definierten User einloggen.
 

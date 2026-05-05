@@ -40,7 +40,11 @@
     path: "{{ openbao_deb_dest }}"
     state: absent
 
-- name: Configure file audit device in openbao.hcl
+- name: Configure HA cluster (raft + TLS + HA HCL)
+  ansible.builtin.import_tasks: ha.yml
+  when: openbao_ha_enabled | bool
+
+- name: Configure file audit device in openbao.hcl (single-node mode)
   ansible.builtin.blockinfile:
     path: "{{ openbao_config_path }}"
     marker: "# {mark} ANSIBLE MANAGED BLOCK - audit"
@@ -53,6 +57,7 @@
         }
       }
     state: "{{ 'present' if openbao_audit_enabled | bool else 'absent' }}"
+  when: not (openbao_ha_enabled | bool)
   notify: Restart openbao
 
 - name: Enable and start OpenBao service

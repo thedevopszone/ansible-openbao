@@ -1,0 +1,136 @@
+---
+# HA-mode tasks: provision a Mini-CA on the control node, sign per-host
+# server certs with proper SANs, distribute them, and render the HA HCL.
+
+- name: Ensure local CA directory exists on the control node
+  ansible.builtin.file:
+    path: "{{ openbao_ca_local_dir }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Generate CA private key on the control node
+  community.crypto.openssl_privatekey:
+    path: "{{ openbao_ca_local_dir }}/ca.key"
+    size: 4096
+    type: RSA
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Generate CSR for the CA certificate
+  community.crypto.openssl_csr:
+    path: "{{ openbao_ca_local_dir }}/ca.csr"
+    privatekey_path: "{{ openbao_ca_local_dir }}/ca.key"
+    common_name: "{{ openbao_ca_cn }}"
+    basic_constraints:
+      - "CA:TRUE"
+    basic_constraints_critical: true
+    key_usage:
+      - keyCertSign
+      - cRLSign
+    key_usage_critical: true
+    use_common_name_for_san: false
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Generate self-signed CA certificate
+  community.crypto.x509_certificate:
+    path: "{{ openbao_ca_local_dir }}/ca.crt"
+    csr_path: "{{ openbao_ca_local_dir }}/ca.csr"
+    privatekey_path: "{{ openbao_ca_local_dir }}/ca.key"
+    provider: selfsigned
+    selfsigned_not_after: "+{{ openbao_ca_validity_days }}d"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Generate per-host server private key on the control node
+  community.crypto.openssl_privatekey:
+    path: "{{ openbao_ca_local_dir }}/{{ inventory_hostname }}.key"
+    size: 2048
+    type: RSA
+    mode: "0600"
+  delegate_to: localhost
+  become: false
+
+- name: Generate per-host CSR with cluster-wide SANs
+  community.crypto.openssl_csr:
+    path: "{{ openbao_ca_local_dir }}/{{ inventory_hostname }}.csr"
+    privatekey_path: "{{ openbao_ca_local_dir }}/{{ inventory_hostname }}.key"
+    common_name: "{{ inventory_hostname }}"
+    subject_alt_name: "{{ _openbao_san_list }}"
+    extended_key_usage:
+      - serverAuth
+      - clientAuth
+    use_common_name_for_san: false
+  vars:
+    _openbao_san_ip_entries: >-
+      {{ (['IP:' + ansible_host, 'IP:127.0.0.1']
+          + (openbao_extra_san_ips | map('regex_replace', '^', 'IP:') | list))
+         | unique }}
+    _openbao_san_dns_entries: >-
+      {{ openbao_extra_san_dns | map('regex_replace', '^', 'DNS:') | list }}
+    _openbao_san_list: "{{ _openbao_san_ip_entries + _openbao_san_dns_entries }}"
+  delegate_to: localhost
+  become: false
+
+- name: Sign per-host server certificate with the CA
+  community.crypto.x509_certificate:
+    path: "{{ openbao_ca_local_dir }}/{{ inventory_hostname }}.crt"
+    csr_path: "{{ openbao_ca_local_dir }}/{{ inventory_hostname }}.csr"
+    ownca_path: "{{ openbao_ca_local_dir }}/ca.crt"
+    ownca_privatekey_path: "{{ openbao_ca_local_dir }}/ca.key"
+    provider: ownca
+    ownca_not_after: "+{{ openbao_cert_validity_days }}d"
+  delegate_to: localhost
+  become: false
+
+- name: Ensure TLS directory exists on the host
+  ansible.builtin.file:
+    path: "{{ openbao_tls_dir }}"
+    state: directory
+    owner: openbao
+    group: openbao
+    mode: "0750"
+
+- name: Distribute CA certificate to the host
+  ansible.builtin.copy:
+    src: "{{ openbao_ca_local_dir }}/ca.crt"
+    dest: "{{ openbao_tls_dir }}/ca.crt"
+    owner: openbao
+    group: openbao
+    mode: "0644"
+  notify: Restart openbao
+
+- name: Distribute server certificate to the host
+  ansible.builtin.copy:
+    src: "{{ openbao_ca_local_dir }}/{{ inventory_hostname }}.crt"
+    dest: "{{ openbao_tls_dir }}/tls.crt"
+    owner: openbao
+    group: openbao
+    mode: "0644"
+  notify: Restart openbao
+
+- name: Distribute server private key to the host
+  ansible.builtin.copy:
+    src: "{{ openbao_ca_local_dir }}/{{ inventory_hostname }}.key"
+    dest: "{{ openbao_tls_dir }}/tls.key"
+    owner: openbao
+    group: openbao
+    mode: "0640"
+  no_log: true
+  notify: Restart openbao
+
+- name: Render HA OpenBao config
+  ansible.builtin.template:
+    src: openbao-ha.hcl.j2
+    dest: "{{ openbao_config_path }}"
+    owner: openbao
+    group: openbao
+    mode: "0640"
+  notify: Restart openbao

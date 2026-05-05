@@ -1,0 +1,10 @@
+---
+- name: Install OpenBao 3-node HA cluster
+  hosts: "{{ openbao_ha_group | default('openbao_ha_servers') }}"
+  become: true
+  gather_facts: true
+  serial: 1
+  roles:
+    - role: openbao
+      vars:
+        openbao_ha_enabled: true

@@ -1,0 +1,84 @@
+---
+# Take a Raft snapshot of the OpenBao HA cluster and pull it to the
+# control node. Idempotent in the sense that each run produces a new,
+# timestamped snapshot file.
+#
+# Required:
+#   VAULT_TOKEN environment variable (or -e openbao_token=...).
+#
+# Defaults:
+#   - target host = first host in `openbao_ha_group` (default `openbao_ha_servers`)
+#   - local destination = ./backups/ on the control node
+#   - retention = keep all snapshots (rotation kept out — wire up your own
+#     backup tooling for off-site copies and cleanup)
+- name: Backup OpenBao (Raft snapshot)
+  hosts: "{{ openbao_backup_target | default(groups[openbao_ha_group | default('openbao_ha_servers')][0]) }}"
+  gather_facts: false
+  become: false
+  vars:
+    openbao_token: "{{ lookup('env', 'VAULT_TOKEN') }}"
+    openbao_api_port: 8200
+    openbao_tls_dir: /opt/openbao/tls
+    openbao_backup_local_dir: "{{ playbook_dir }}/../backups"
+
+  pre_tasks:
+    - name: Verify a Vault token is available
+      ansible.builtin.assert:
+        that:
+          - openbao_token | length > 0
+        fail_msg: |
+          VAULT_TOKEN ist nicht gesetzt. Beispiel:
+            export VAULT_TOKEN=<root-or-backup-token>
+            ansible-playbook playbooks/backup-openbao.yml
+
+    - name: Lock in a single timestamp for this run
+      ansible.builtin.set_fact:
+        _openbao_ts: "{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}"
+
+    - name: Compute snapshot paths
+      ansible.builtin.set_fact:
+        _openbao_remote_path: "/tmp/openbao-{{ inventory_hostname }}-{{ _openbao_ts }}.snap"
+        _openbao_local_path: "{{ openbao_backup_local_dir }}/openbao-{{ inventory_hostname }}-{{ _openbao_ts }}.snap"
+
+    - name: Ensure local backup directory exists on the control node
+      ansible.builtin.file:
+        path: "{{ openbao_backup_local_dir }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      run_once: true
+
+  tasks:
+    - name: Take Raft snapshot on the target host
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/bao
+          - operator
+          - raft
+          - snapshot
+          - save
+          - "{{ _openbao_remote_path }}"
+      environment:
+        VAULT_ADDR: "https://127.0.0.1:{{ openbao_api_port }}"
+        VAULT_CACERT: "{{ openbao_tls_dir }}/ca.crt"
+        VAULT_TOKEN: "{{ openbao_token }}"
+      changed_when: true
+      no_log: true
+      become: true
+
+    - name: Fetch snapshot to the control node
+      ansible.builtin.fetch:
+        src: "{{ _openbao_remote_path }}"
+        dest: "{{ _openbao_local_path }}"
+        flat: true
+      become: true
+
+    - name: Remove snapshot from the target host
+      ansible.builtin.file:
+        path: "{{ _openbao_remote_path }}"
+        state: absent
+      become: true
+
+    - name: Show local snapshot path
+      ansible.builtin.debug:
+        msg: "Snapshot gespeichert unter {{ _openbao_local_path }}"

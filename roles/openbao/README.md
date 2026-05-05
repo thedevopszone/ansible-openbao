@@ -24,6 +24,18 @@ Rolle lädt das `.deb` direkt von `https://github.com/openbao/openbao/releases/`
 | `openbao_config_path` | `/etc/openbao/openbao.hcl` | Pfad der Hauptkonfig (für blockinfile-Eingriffe) |
 | `openbao_audit_enabled` | `true` | File-Audit-Device über `openbao.hcl` aktivieren |
 | `openbao_audit_log_path` | `/opt/openbao/audit.log` | Zielpfad des Audit-Logs (Verzeichnis muss vom `openbao`-User schreibbar sein) |
+| `openbao_ha_enabled` | `false` | Schaltet den HA-Pfad ein: Raft-Storage, eigene Mini-CA, getemplete `openbao.hcl`. Wenn `false` bleibt das Single-Node-Verhalten unverändert |
+| `openbao_ha_group` | `openbao_ha_servers` | Inventory-Gruppe der HA-Peers (Hosts dieser Gruppe werden gegenseitig als `retry_join` und SAN eingetragen) |
+| `openbao_data_path` | `/opt/openbao/data` | Datenverzeichnis (für Raft-Storage) |
+| `openbao_tls_dir` | `/opt/openbao/tls` | Zielpfad der TLS-Dateien (`ca.crt`, `tls.crt`, `tls.key`) auf dem Host |
+| `openbao_api_port` | `8200` | API-/UI-Port |
+| `openbao_cluster_port` | `8201` | Raft-Cluster-Port |
+| `openbao_ca_local_dir` | `<repo>/.openbao-ca` | Pfad auf der Control-Node, in dem CA-Key + CA-Cert + Per-Host-Keys/Certs liegen — gitignored, persistent über Runs |
+| `openbao_ca_cn` | `OpenBao HA CA` | CN der CA |
+| `openbao_ca_validity_days` | `3650` | CA-Cert-Laufzeit |
+| `openbao_cert_validity_days` | `1095` | Per-Host-Cert-Laufzeit |
+| `openbao_extra_san_ips` | abgeleitet | Liste zusätzlicher IP-SANs pro Host (Default: alle Cluster-IPs aus `openbao_ha_group`) |
+| `openbao_extra_san_dns` | `[localhost]` | Liste zusätzlicher DNS-SANs pro Host |
 
 ## Was die Rolle tut
 
@@ -100,6 +112,27 @@ Die ausgegebenen Unseal-Keys und den Initial-Root-Token sicher verwahren.
       vars:
         openbao_version: "2.5.3"
 ```
+
+## HA-Modus (3-Node Raft-Cluster)
+
+Wenn `openbao_ha_enabled: true` gesetzt ist, übernimmt die Rolle zusätzlich:
+
+1. Eine **Mini-CA** auf der Control-Node anlegen (`openbao_ca_local_dir`,
+   default `<repo>/.openbao-ca/`).
+2. Pro Host ein **Server-Cert** mit SANs für die eigene IP, alle Peer-IPs aus
+   `openbao_ha_group`, `127.0.0.1` und `localhost` ausstellen und mit der CA
+   signieren.
+3. `ca.crt`, `tls.crt`, `tls.key` nach `{{ openbao_tls_dir }}` auf dem Host
+   ausrollen (Owner `openbao`).
+4. Eine vollständige **HA-`openbao.hcl`** rendern mit
+   - `storage "raft"` (Daten unter `openbao_data_path`)
+   - `node_id = inventory_hostname`
+   - `retry_join`-Block für jeden Host der Gruppe
+   - `listener "tcp"` mit dem signierten Cert
+   - Audit-Block (wenn `openbao_audit_enabled`)
+
+Init und Unseal sind weiterhin manuell — siehe Repo-`README.md`, Abschnitt
+„HA-Deployment".
 
 ## Lizenz
 

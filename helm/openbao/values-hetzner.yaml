@@ -76,9 +76,9 @@ server:
 
         service_registration "kubernetes" {}
 
-        audit "file" {
-          file_path = "/openbao/audit/audit.log"
-        }
+        # Audit is enabled at runtime, not in server config:
+        #   bao audit enable -path=file file file_path=/openbao/audit/audit.log
+        # The auditStorage PVC below is mounted ready for when audit is enabled.
 
   dataStorage:
     enabled: true

@@ -5,6 +5,9 @@ SHELL := /bin/bash
 #                      var-file terraform.tfvars, skip_tls_verify=true.
 #   ha               → 172.16.0.143 (HA cluster), workspace `ha`,
 #                      var-file ha.tfvars, VAULT_CACERT=./.openbao-ca/ca.crt.
+#   k8s-hetzner      → openbao.securek8s.de (helm-deployed on hetzner k8s),
+#                      workspace `k8s-hetzner`, var-file k8s-hetzner.tfvars.
+#                      Ingress cert is Let's Encrypt → no VAULT_CACERT needed.
 CLUSTER ?= single
 
 TF_DIR := terraform
@@ -20,8 +23,13 @@ else ifeq ($(CLUSTER),single)
   TF_VAR_FILE   := terraform.tfvars
   TF_ENV        :=
   CLUSTER_LABEL := single-node (172.16.0.107, workspace=default)
+else ifeq ($(CLUSTER),k8s-hetzner)
+  TF_WORKSPACE  := k8s-hetzner
+  TF_VAR_FILE   := k8s-hetzner.tfvars
+  TF_ENV        :=
+  CLUSTER_LABEL := k8s on hetzner (openbao.securek8s.de, workspace=k8s-hetzner)
 else
-  $(error unsupported CLUSTER='$(CLUSTER)' — use 'single' or 'ha')
+  $(error unsupported CLUSTER='$(CLUSTER)' — use 'single', 'ha' or 'k8s-hetzner')
 endif
 
 .PHONY: help deps install install-ha backup ping \
@@ -39,9 +47,9 @@ help:
 	@echo "  tf-init      - terraform init"
 	@echo "  tf-fmt       - terraform fmt -recursive"
 	@echo "  tf-validate  - terraform validate"
-	@echo "  tf-plan      - terraform plan (CLUSTER=single|ha, requires VAULT_TOKEN)"
-	@echo "  tf-apply     - terraform apply (CLUSTER=single|ha, requires VAULT_TOKEN)"
-	@echo "  tf-destroy   - terraform destroy (CLUSTER=single|ha, requires VAULT_TOKEN)"
+	@echo "  tf-plan      - terraform plan (CLUSTER=single|ha|k8s-hetzner, requires VAULT_TOKEN)"
+	@echo "  tf-apply     - terraform apply (CLUSTER=single|ha|k8s-hetzner, requires VAULT_TOKEN)"
+	@echo "  tf-destroy   - terraform destroy (CLUSTER=single|ha|k8s-hetzner, requires VAULT_TOKEN)"
 	@echo "  deploy       - install + tf-init + tf-apply (single-node)"
 	@echo "  k8s-prereqs  - apply namespace + cert-manager internal CA to current kubectl context"
 	@echo "  k8s-install  - helm install/upgrade openbao to current kubectl context (hetzner)"
@@ -53,8 +61,9 @@ help:
 	@echo "  VAULT_TOKEN  must be exported for terraform targets"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make tf-plan                  # single-node (default)"
-	@echo "  make tf-apply CLUSTER=ha      # HA cluster"
+	@echo "  make tf-plan                          # single-node (default)"
+	@echo "  make tf-apply CLUSTER=ha              # HA cluster"
+	@echo "  make tf-apply CLUSTER=k8s-hetzner     # k8s helm deployment"
 
 PYTHON ?= python3
 VENV   := .venv

@@ -1,0 +1,57 @@
+# Vorlage für den K8s-OpenBao auf Hetzner (Terraform-Workspace `k8s-hetzner`).
+# Nach `k8s-hetzner.tfvars` kopieren und Werte anpassen — die echte Datei
+# ist .gitignored.
+#
+# Aufruf:
+#   make tf-init                                  # einmalig
+#   make tf-plan  CLUSTER=k8s-hetzner             # mit VAULT_TOKEN exportiert
+#   make tf-apply CLUSTER=k8s-hetzner
+#
+# Der Ingress (openbao.securek8s.de) trägt ein Let's-Encrypt-Cert, daher
+# braucht es weder VAULT_CACERT noch skip_tls_verify=true.
+#
+# VAULT_TOKEN holst du dir mit dem Initial-Root-Token aus dem
+# `bao operator init` (siehe helm/openbao/README.md).
+
+vault_addr      = "https://openbao.securek8s.de"
+skip_tls_verify = false
+
+users = {
+  thomas = {
+    password = "REPLACE_ME"
+    policies = ["admin"]
+  }
+}
+
+# AppRoles für Maschinen/CI im K8s-Cluster. Optional.
+approles = {
+  # ci-runner = {
+  #   policies      = ["read-only"]
+  #   token_ttl     = 3600
+  #   token_max_ttl = 14400
+  #   secret_id_ttl = 86400
+  # }
+}
+
+# Datenbank-Verbindungen. Optional.
+database_connections = {
+  # app-postgres = {
+  #   plugin_name    = "postgresql-database-plugin"
+  #   connection_url = "postgresql://{{username}}:{{password}}@db.internal:5432/app?sslmode=disable"
+  #   username       = "vault_admin"
+  #   password       = "REPLACE_ME"
+  #   allowed_roles  = ["app-readonly"]
+  # }
+}
+
+database_roles = {
+  # app-readonly = {
+  #   db_connection = "app-postgres"
+  #   creation_statements = [
+  #     "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';",
+  #     "GRANT CONNECT ON DATABASE app TO \"{{name}}\";",
+  #   ]
+  #   default_ttl = 3600
+  #   max_ttl     = 86400
+  # }
+}

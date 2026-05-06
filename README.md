@@ -82,6 +82,17 @@ make tf-apply CLUSTER=ha
 make deploy        # install + tf-init + tf-apply in einem Rutsch (single-node)
 ```
 
+Zusätzlich zum Ansible/VM-Pfad gibt es einen **Helm-Install auf Kubernetes**
+für einen 3-Replica-Raft-Cluster (siehe [`helm/openbao/README.md`](helm/openbao/README.md)):
+
+```bash
+kubectl config use-context hetzner
+make k8s-install      # Namespace + interne CA + Helm-Install
+make k8s-status       # Pods/PVCs/Ingress + bao status
+```
+
+Init und Unseal sind manuell, wie beim VM-HA.
+
 Direkter Aufruf ohne Makefile:
 
 ```bash

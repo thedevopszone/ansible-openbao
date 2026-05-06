@@ -125,6 +125,20 @@ check-kctx:
 K8S_NAMESPACE ?= openbao
 HELM_RELEASE  ?= openbao
 
+# The openbao chart declares kubeVersion >= 1.30.0 and the hetzner cluster runs
+# 1.29 — `helm install/upgrade` rejects the constraint. Workaround: render with
+# `helm template --kube-version` (helm 3 only) and pipe to `kubectl apply`.
+# Once the cluster is upgraded to 1.30+, switch back to `helm upgrade --install`.
+HELM3              ?= /opt/homebrew/opt/helm@3/bin/helm
+HELM_KUBE_VERSION  ?= 1.30.0
+
+define HELM_TEMPLATE
+$(HELM3) template $(HELM_RELEASE) openbao/openbao \
+  -n $(K8S_NAMESPACE) \
+  -f helm/openbao/values-hetzner.yaml \
+  --kube-version $(HELM_KUBE_VERSION)
+endef
+
 k8s-prereqs: check-kctx
 	kubectl apply -f helm/openbao/manifests/namespace.yaml
 	kubectl apply -f helm/openbao/manifests/cert-manager.yaml
@@ -134,17 +148,19 @@ k8s-prereqs: check-kctx
 	  -n $(K8S_NAMESPACE) --timeout=120s
 
 k8s-install: check-kctx k8s-prereqs
-	helm repo add openbao https://openbao.github.io/openbao-helm 2>/dev/null || true
-	helm repo update openbao
-	helm upgrade --install $(HELM_RELEASE) openbao/openbao \
-	  -n $(K8S_NAMESPACE) \
-	  -f helm/openbao/values-hetzner.yaml
+	$(HELM3) repo add openbao https://openbao.github.io/openbao-helm 2>/dev/null || true
+	$(HELM3) repo update openbao
+	$(HELM_TEMPLATE) | kubectl apply -n $(K8S_NAMESPACE) -f -
 
 k8s-uninstall: check-kctx
-	helm uninstall $(HELM_RELEASE) -n $(K8S_NAMESPACE)
+	$(HELM_TEMPLATE) | kubectl delete -n $(K8S_NAMESPACE) -f - --ignore-not-found
 	@echo
 	@echo "PVCs are kept by design. To wipe them:"
 	@echo "  kubectl -n $(K8S_NAMESPACE) delete pvc -l app.kubernetes.io/name=openbao"
+	@echo
+	@echo "Cluster-scoped resources (ClusterIssuers, openbao-ca Certificate)"
+	@echo "are kept too. To wipe:"
+	@echo "  kubectl delete -f helm/openbao/manifests/cert-manager.yaml"
 
 k8s-status:
 	@kubectl -n $(K8S_NAMESPACE) get pods,pvc,svc,ingress

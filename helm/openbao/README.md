@@ -16,6 +16,14 @@ Spec: [`docs/superpowers/specs/2026-05-06-openbao-helm-hetzner-design.md`](../..
 | Ingress | IngressClass `nginx` |
 | Cert-Manager | installiert; ClusterIssuer `letsencrypt-production` Ready |
 | DNS | `openbao.securek8s.de` zeigt auf einen Worker-Node |
+| Helm 3 | `brew install helm@3` — siehe Anmerkung unten |
+
+> **K8s 1.29 Workaround:** Der `openbao/openbao`-Chart fordert
+> `kubeVersion >= 1.30`. Der Cluster läuft 1.29.4. `make k8s-install` rendert
+> daher mit `helm@3 template --kube-version 1.30.0` und applyt mit `kubectl`,
+> statt `helm install` zu nutzen. Konsequenz: keine Helm-Release-History,
+> keine `helm rollback`. Sobald der Cluster auf 1.30+ aktualisiert ist, kann
+> der Makefile-Target wieder auf `helm upgrade --install` umgestellt werden.
 
 ## Layout
 
@@ -66,8 +74,8 @@ kubectl -n openbao exec openbao-0 -- bao operator raft list-peers
 | Target | Was es tut |
 | --- | --- |
 | `make k8s-prereqs` | Namespace + cert-manager Issuers/Cert anlegen, auf Cert-Ready warten |
-| `make k8s-install` | `k8s-prereqs` + `helm upgrade --install` (idempotent) |
-| `make k8s-uninstall` | `helm uninstall` — PVCs bleiben absichtlich erhalten |
+| `make k8s-install` | `k8s-prereqs` + `helm template \| kubectl apply` (idempotent) |
+| `make k8s-uninstall` | `helm template \| kubectl delete` — PVCs bleiben erhalten |
 | `make k8s-status` | Pods/PVCs/Services/Ingress + `bao status` von `openbao-0` |
 
 ## TLS-Setup im Detail

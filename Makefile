@@ -26,7 +26,7 @@ endif
 
 .PHONY: help deps install install-ha backup ping \
         tf-init tf-fmt tf-validate tf-workspace tf-plan tf-apply tf-destroy \
-        deploy check-token \
+        deploy check-token check-kctx \
         k8s-prereqs k8s-install k8s-uninstall k8s-status
 
 help:
@@ -45,7 +45,7 @@ help:
 	@echo "  deploy       - install + tf-init + tf-apply (single-node)"
 	@echo "  k8s-prereqs  - apply namespace + cert-manager internal CA to current kubectl context"
 	@echo "  k8s-install  - helm install/upgrade openbao to current kubectl context (hetzner)"
-	@echo "  k8s-uninstall- helm uninstall openbao (PVCs are kept)"
+	@echo "  k8s-uninstall - helm uninstall openbao (PVCs are kept)"
 	@echo "  k8s-status   - show pods, PVCs, and bao status from openbao-0"
 	@echo ""
 	@echo "Env:"
@@ -110,6 +110,14 @@ check-token:
 		exit 1; \
 	fi
 
+check-kctx:
+	@ctx=$$(kubectl config current-context); \
+	if [ "$$ctx" != "hetzner" ]; then \
+	  echo "ERROR: kubectl context is '$$ctx', expected 'hetzner'."; \
+	  echo "Run: kubectl config use-context hetzner"; \
+	  exit 1; \
+	fi
+
 # ----- Kubernetes (Helm) install path -----------------------------------------
 # Targets operate on the current kubectl context. The spec targets the `hetzner`
 # cluster; switch context with `kubectl config use-context hetzner` before use.
@@ -117,7 +125,7 @@ check-token:
 K8S_NAMESPACE ?= openbao
 HELM_RELEASE  ?= openbao
 
-k8s-prereqs:
+k8s-prereqs: check-kctx
 	kubectl apply -f helm/openbao/manifests/namespace.yaml
 	kubectl apply -f helm/openbao/manifests/cert-manager.yaml
 	kubectl wait --for=condition=Ready certificate/openbao-ca \
@@ -125,14 +133,14 @@ k8s-prereqs:
 	kubectl wait --for=condition=Ready certificate/openbao-server-tls \
 	  -n $(K8S_NAMESPACE) --timeout=120s
 
-k8s-install: k8s-prereqs
+k8s-install: check-kctx k8s-prereqs
 	helm repo add openbao https://openbao.github.io/openbao-helm 2>/dev/null || true
 	helm repo update openbao
 	helm upgrade --install $(HELM_RELEASE) openbao/openbao \
 	  -n $(K8S_NAMESPACE) \
 	  -f helm/openbao/values-hetzner.yaml
 
-k8s-uninstall:
+k8s-uninstall: check-kctx
 	helm uninstall $(HELM_RELEASE) -n $(K8S_NAMESPACE)
 	@echo
 	@echo "PVCs are kept by design. To wipe them:"

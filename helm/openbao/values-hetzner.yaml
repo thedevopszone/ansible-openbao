@@ -1,0 +1,119 @@
+# OpenBao Helm values for the `hetzner` Kubernetes cluster.
+# Spec: docs/superpowers/specs/2026-05-06-openbao-helm-hetzner-design.md
+
+global:
+  enabled: true
+  tlsDisable: false
+
+injector:
+  enabled: false
+
+server:
+  enabled: true
+
+  # bao CLI inside the pod talks to the local listener via HTTPS — point it at
+  # the ca.crt from the mounted Secret so `bao status` / `bao operator init`
+  # don't need VAULT_SKIP_VERIFY.
+  extraEnvironmentVars:
+    VAULT_ADDR: "https://127.0.0.1:8200"
+    VAULT_CACERT: "/openbao/userconfig/openbao-server-tls/ca.crt"
+
+  # Mount the cert-manager-issued Secret produced in Task 2.
+  volumes:
+    - name: openbao-server-tls
+      secret:
+        secretName: openbao-server-tls
+        defaultMode: 0400
+  volumeMounts:
+    - name: openbao-server-tls
+      mountPath: /openbao/userconfig/openbao-server-tls
+      readOnly: true
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Soft anti-affinity: pods prefer different worker nodes, but co-locate if
+  # they must. The cluster has only 2 workers; required anti-affinity would
+  # leave the 3rd replica unschedulable.
+  affinity: |
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: {{ template "openbao.name" . }}
+                app.kubernetes.io/instance: "{{ .Release.Name }}"
+                component: server
+            topologyKey: kubernetes.io/hostname
+
+  ha:
+    enabled: true
+    replicas: 3
+    raft:
+      enabled: true
+      setNodeId: true
+      config: |
+        ui = true
+
+        listener "tcp" {
+          tls_disable        = 0
+          address            = "[::]:8200"
+          cluster_address    = "[::]:8201"
+          tls_cert_file      = "/openbao/userconfig/openbao-server-tls/tls.crt"
+          tls_key_file       = "/openbao/userconfig/openbao-server-tls/tls.key"
+          tls_client_ca_file = "/openbao/userconfig/openbao-server-tls/ca.crt"
+        }
+
+        storage "raft" {
+          path = "/openbao/data"
+        }
+
+        service_registration "kubernetes" {}
+
+        audit "file" {
+          file_path = "/openbao/audit/audit.log"
+        }
+
+  dataStorage:
+    enabled: true
+    size: 10Gi
+    storageClass: longhorn
+    accessMode: ReadWriteOnce
+    mountPath: /openbao/data
+
+  auditStorage:
+    enabled: true
+    size: 1Gi
+    storageClass: longhorn
+    accessMode: ReadWriteOnce
+    mountPath: /openbao/audit
+
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-production
+      nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+      nginx.ingress.kubernetes.io/proxy-ssl-verify: "off"
+    hosts:
+      - host: openbao.securek8s.de
+        paths: []
+    tls:
+      - hosts:
+          - openbao.securek8s.de
+        secretName: openbao-ingress-tls
+
+  service:
+    enabled: true
+    # ClusterIP — external traffic enters via the Ingress.
+    type: ClusterIP
+
+ui:
+  enabled: true
+  serviceType: ClusterIP

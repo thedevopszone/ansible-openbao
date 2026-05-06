@@ -353,7 +353,7 @@ server:
           podAffinityTerm:
             labelSelector:
               matchLabels:
-                app.kubernetes.io/name: {{ template "vault.name" . }}
+                app.kubernetes.io/name: {{ template "openbao.name" . }}
                 app.kubernetes.io/instance: "{{ .Release.Name }}"
                 component: server
             topologyKey: kubernetes.io/hostname

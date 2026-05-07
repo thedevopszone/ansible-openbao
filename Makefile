@@ -35,7 +35,7 @@ endif
 .PHONY: help deps install install-ha backup ping \
         tf-init tf-fmt tf-validate tf-workspace tf-plan tf-apply tf-destroy \
         deploy check-token check-kctx \
-        k8s-prereqs k8s-install k8s-uninstall k8s-status
+        k8s-prereqs k8s-install k8s-uninstall k8s-status k8s-backup
 
 help:
 	@echo "Targets:"
@@ -55,6 +55,7 @@ help:
 	@echo "  k8s-install  - helm install/upgrade openbao to current kubectl context (hetzner)"
 	@echo "  k8s-uninstall - helm uninstall openbao (PVCs are kept)"
 	@echo "  k8s-status   - show pods, PVCs, and bao status from openbao-0"
+	@echo "  k8s-backup   - Pull a Raft snapshot from the helm-deployed cluster to ./backups/ (requires VAULT_TOKEN)"
 	@echo ""
 	@echo "Env:"
 	@echo "  CLUSTER      = $(CLUSTER)   →  $(CLUSTER_LABEL)"
@@ -175,3 +176,6 @@ k8s-status:
 	@kubectl -n $(K8S_NAMESPACE) get pods,pvc,svc,ingress
 	@echo
 	@kubectl -n $(K8S_NAMESPACE) exec $(HELM_RELEASE)-0 -- bao status || true
+
+k8s-backup: check-kctx check-token
+	ansible-playbook playbooks/backup-openbao-k8s.yml

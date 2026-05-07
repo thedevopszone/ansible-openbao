@@ -2,3 +2,4 @@
 collections:
   - name: community.hashi_vault
   - name: community.crypto
+  - name: kubernetes.core

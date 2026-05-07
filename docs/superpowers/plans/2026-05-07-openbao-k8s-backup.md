@@ -343,18 +343,17 @@ Expected: a new `openbao-openbao-0-<ts>.snap` file, size > 0 bytes (typically te
 Run: `file backups/openbao-openbao-0-*.snap | tail -1`
 Expected: detected as `gzip compressed data` (Raft snapshots are gzipped tar archives).
 
-- [ ] **Step 4: Validate the snapshot content with `bao` itself**
+- [ ] **Step 4: Validate the snapshot structure**
 
-Copy the snapshot back into the pod and inspect it (the `bao` CLI on the control node may not match the server version):
+OpenBao 2.5.3 has no `bao operator raft snapshot inspect` subcommand (only `save`/`restore`). A Raft snapshot is a gzipped tar containing `meta.json`, `state.bin`, `SHA256SUMS`, `SHA256SUMS.sealed`. Validate that structure directly:
 
 ```bash
 SNAP=$(ls -t backups/openbao-openbao-0-*.snap | head -1)
-kubectl -n openbao cp "$SNAP" openbao-0:/tmp/verify.snap
-kubectl -n openbao exec openbao-0 -- bao operator raft snapshot inspect /tmp/verify.snap
-kubectl -n openbao exec openbao-0 -- rm -f /tmp/verify.snap
+tar -tzf "$SNAP"
+tar -xzOf "$SNAP" meta.json | python3 -m json.tool
 ```
 
-Expected: `bao operator raft snapshot inspect` prints metadata (Version, Term, Index, Size). No "corrupt" / "invalid" errors.
+Expected: `tar -tzf` lists all four files. `meta.json` parses as JSON and contains non-zero `Index` + `Term`, plus a `Configuration.Servers` array listing all cluster members (`openbao-0`, `openbao-1`, `openbao-2` for the standard 3-replica setup).
 
 - [ ] **Step 5: Verify pod tempfile cleanup**
 

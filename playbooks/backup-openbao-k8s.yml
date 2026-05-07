@@ -61,6 +61,7 @@
           VAULT_CACERT={{ openbao_k8s_cacert }}
           VAULT_TOKEN={{ openbao_token }}
           bao operator raft snapshot save {{ _openbao_remote_path }}
+      changed_when: true
       no_log: true
 
     - name: Copy snapshot from the pod to the control node

@@ -50,4 +50,36 @@
         state: directory
         mode: "0700"
 
-  tasks: []
+  tasks:
+    - name: Take Raft snapshot inside the target pod
+      kubernetes.core.k8s_exec:
+        namespace: "{{ openbao_k8s_namespace }}"
+        pod: "{{ openbao_k8s_pod }}"
+        command: >-
+          env
+          VAULT_ADDR={{ openbao_k8s_addr }}
+          VAULT_CACERT={{ openbao_k8s_cacert }}
+          VAULT_TOKEN={{ openbao_token }}
+          bao operator raft snapshot save {{ _openbao_remote_path }}
+      no_log: true
+
+    - name: Copy snapshot from the pod to the control node
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - -n
+          - "{{ openbao_k8s_namespace }}"
+          - cp
+          - "{{ openbao_k8s_pod }}:{{ _openbao_remote_path }}"
+          - "{{ _openbao_local_path }}"
+      changed_when: true
+
+    - name: Remove snapshot from the pod
+      kubernetes.core.k8s_exec:
+        namespace: "{{ openbao_k8s_namespace }}"
+        pod: "{{ openbao_k8s_pod }}"
+        command: "rm -f {{ _openbao_remote_path }}"
+
+    - name: Show local snapshot path
+      ansible.builtin.debug:
+        msg: "Snapshot gespeichert unter {{ _openbao_local_path }}"

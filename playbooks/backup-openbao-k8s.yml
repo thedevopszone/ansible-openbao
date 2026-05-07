@@ -1,0 +1,53 @@
+---
+# Take a Raft snapshot of the Helm-deployed OpenBao HA cluster on
+# Kubernetes (current `kubectl` context) and pull it to the control node.
+# Mirrors `playbooks/backup-openbao.yml` (SSH/VM path) but talks to the
+# cluster via `kubernetes.core.k8s_exec` + `kubectl cp` instead of SSH.
+#
+# Required:
+#   VAULT_TOKEN environment variable (or -e openbao_token=...).
+#
+# Defaults:
+#   - namespace = openbao
+#   - target pod = openbao-0
+#   - local destination = ./backups/ on the control node
+#   - retention = keep all snapshots (rotation kept out — wire up your own
+#     backup tooling for off-site copies and cleanup)
+- name: Backup OpenBao on Kubernetes (Raft snapshot)
+  hosts: localhost
+  gather_facts: false
+  become: false
+  vars:
+    openbao_token: "{{ lookup('env', 'VAULT_TOKEN') }}"
+    openbao_k8s_namespace: openbao
+    openbao_k8s_pod: openbao-0
+    openbao_k8s_addr: "https://127.0.0.1:8200"
+    openbao_k8s_cacert: "/openbao/userconfig/openbao-server-tls/ca.crt"
+    openbao_backup_local_dir: "{{ playbook_dir }}/../backups"
+
+  pre_tasks:
+    - name: Verify a Vault token is available
+      ansible.builtin.assert:
+        that:
+          - openbao_token | length > 0
+        fail_msg: |
+          VAULT_TOKEN ist nicht gesetzt. Beispiel:
+            export VAULT_TOKEN=<root-or-backup-token>
+            ansible-playbook playbooks/backup-openbao-k8s.yml
+
+    - name: Lock in a single timestamp for this run
+      ansible.builtin.set_fact:
+        _openbao_ts: "{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}"
+
+    - name: Compute snapshot paths
+      ansible.builtin.set_fact:
+        _openbao_remote_path: "/tmp/openbao-{{ openbao_k8s_pod }}-{{ _openbao_ts }}.snap"
+        _openbao_local_path: "{{ openbao_backup_local_dir }}/openbao-{{ openbao_k8s_pod }}-{{ _openbao_ts }}.snap"
+
+    - name: Ensure local backup directory exists on the control node
+      ansible.builtin.file:
+        path: "{{ openbao_backup_local_dir }}"
+        state: directory
+        mode: "0700"
+
+  tasks: []
